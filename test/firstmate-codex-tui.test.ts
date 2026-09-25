@@ -3,19 +3,28 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { quotaCommand } from "../src/commands.js";
-import { firstmateCodexAccounts } from "../src/firstmate-codex-snapshot.js";
+import {
+  firstmateCodexAccounts,
+  firstmateCodexProfiles,
+} from "../src/firstmate-codex-snapshot.js";
 import { renderQuotaTui } from "../src/tui.js";
 import type { QuotaAxiResponse } from "../src/types.js";
 
 const homes: string[] = [];
 const previousHome = process.env.FM_HOME;
 const previousFixture = process.env.QUOTA_AXI_SNAPSHOT;
+const previousConfig = process.env.FIRSTMATE_CONFIG_DIR;
+const previousQuotaConfig = process.env.QUOTA_AXI_CONFIG;
 
 afterEach(() => {
   if (previousHome === undefined) delete process.env.FM_HOME;
   else process.env.FM_HOME = previousHome;
   if (previousFixture === undefined) delete process.env.QUOTA_AXI_SNAPSHOT;
   else process.env.QUOTA_AXI_SNAPSHOT = previousFixture;
+  if (previousConfig === undefined) delete process.env.FIRSTMATE_CONFIG_DIR;
+  else process.env.FIRSTMATE_CONFIG_DIR = previousConfig;
+  if (previousQuotaConfig === undefined) delete process.env.QUOTA_AXI_CONFIG;
+  else process.env.QUOTA_AXI_CONFIG = previousQuotaConfig;
   process.exitCode = undefined;
   for (const home of homes.splice(0))
     rmSync(home, { recursive: true, force: true });
@@ -26,6 +35,8 @@ function home(): string {
   homes.push(root);
   mkdirSync(join(root, "config"));
   process.env.FM_HOME = root;
+  delete process.env.FIRSTMATE_CONFIG_DIR;
+  delete process.env.QUOTA_AXI_CONFIG;
   process.env.QUOTA_AXI_SNAPSHOT = join(root, "vendor-snapshot.json");
   writeFileSync(
     process.env.QUOTA_AXI_SNAPSHOT,
@@ -185,5 +196,143 @@ describe("FirstMate Codex profile cards", () => {
     ) as QuotaAxiResponse;
     expect(json.providers).toHaveLength(1);
     expect(json.providers[0].accountKey).not.toBe("codex-personal");
+  });
+});
+
+function configureProfiles(root: string, ids: string[]): void {
+  writeFileSync(
+    join(root, "config", "account-profiles.json"),
+    JSON.stringify({
+      schema_version: 1,
+      profiles: ids.map((id) => ({
+        profile_name: id,
+        provider: "openai",
+        harness: "codex",
+        credential_source_ref: id,
+        enabled: true,
+      })),
+    }),
+  );
+  writeFileSync(
+    join(root, "config", "codex-account-bindings.json"),
+    JSON.stringify({
+      version: 1,
+      codex_homes: Object.fromEntries(ids.map((id) => [id, join(root, id)])),
+    }),
+  );
+}
+
+describe("FirstMate bound Codex profiles", () => {
+  for (const count of [1, 2, 3]) {
+    it(`draws ${count} separate profile card(s) and keeps other providers`, async () => {
+      const root = home();
+      const ids = ["profile-a", "profile-b", "profile-c"].slice(0, count);
+      configureProfiles(root, ids);
+      const visited: string[] = [];
+      const reports = await firstmateCodexProfiles(async (codexHome) => {
+        visited.push(codexHome);
+        return {
+          provider: "codex",
+          label: "Codex",
+          windows: [
+            {
+              id: "five_hour",
+              label: "session",
+              kind: "session",
+              percentRemaining: 80,
+            },
+            {
+              id: "weekly",
+              label: "week",
+              kind: "weekly",
+              percentRemaining: 60,
+            },
+          ],
+          state: { status: "fresh", stale: false },
+        };
+      });
+      expect(visited).toEqual(ids.map((id) => join(root, id)));
+      expect(reports?.map((report) => report.accountKey)).toEqual(ids);
+      const rendered = renderQuotaTui({
+        generatedAt: new Date().toISOString(),
+        schemaVersion: 6,
+        providers: [
+          ...(reports ?? []),
+          {
+            provider: "claude",
+            label: "Claude",
+            windows: [],
+            state: { status: "fresh", stale: false },
+          },
+        ],
+      });
+      for (const id of ids)
+        expect(rendered.match(new RegExp(`account ${id}`, "g"))).toHaveLength(
+          1,
+        );
+      expect(rendered).toContain("● claude");
+      expect(rendered).toContain("80%");
+      expect(rendered).toContain("60%");
+    });
+  }
+
+  it("isolates signed out, unavailable and failing probes and re-reads bindings", async () => {
+    const root = home();
+    configureProfiles(root, ["profile-a", "profile-b", "profile-c"]);
+    const outcomes = await firstmateCodexProfiles(async (codexHome) => {
+      if (codexHome.endsWith("profile-c")) throw new Error("SECRET_SENTINEL");
+      return {
+        provider: "codex",
+        label: "Codex",
+        windows: [],
+        state: {
+          status: codexHome.endsWith("profile-a")
+            ? "auth_required"
+            : "unavailable",
+          stale: false,
+        },
+      };
+    });
+    expect(outcomes?.map((report) => report.state.status)).toEqual([
+      "auth_required",
+      "unavailable",
+      "error",
+    ]);
+    expect(JSON.stringify(outcomes)).not.toContain("SECRET_SENTINEL");
+    const rendered = renderQuotaTui({
+      generatedAt: new Date().toISOString(),
+      schemaVersion: 6,
+      providers: outcomes ?? [],
+    });
+    expect(rendered).toContain("signed out");
+    expect(rendered).toContain("quota probe failed");
+    configureProfiles(root, ["profile-b", "profile-c"]);
+    expect(
+      (
+        await firstmateCodexProfiles(async () => ({
+          provider: "codex",
+          label: "Codex",
+          windows: [],
+          state: { status: "unavailable", stale: false },
+        }))
+      )?.map((report) => report.accountKey),
+    ).toEqual(["profile-b", "profile-c"]);
+  });
+
+  it("honors the explicit config directory over an unrelated FM_HOME", async () => {
+    const root = home();
+    process.env.FIRSTMATE_CONFIG_DIR = join(root, "config");
+    process.env.FM_HOME = join(root, "unrelated");
+    configureProfiles(root, ["profile-a"]);
+    expect(
+      (
+        await firstmateCodexProfiles(async () => ({
+          provider: "codex",
+          label: "Codex",
+          windows: [],
+          state: { status: "fresh", stale: false },
+        }))
+      )?.[0].accountKey,
+    ).toBe("profile-a");
   });
 });

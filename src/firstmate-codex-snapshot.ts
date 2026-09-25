@@ -1,11 +1,12 @@
 /**
- * FirstMate's metadata-only v2 account snapshot is an optional human display
- * source. It is never used for machine quota reports or credential discovery.
+ * FirstMate's Codex profiles, bindings and metadata snapshot are optional human
+ * display sources. Machine quota reports keep their native discovery path.
  */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ProviderQuota, QuotaWindow } from "./types.js";
+import { fetchCodexHomeQuota } from "./providers/codex.js";
 
 type Row = Record<string, unknown>;
 const PROFILE_ID = /^[A-Za-z0-9._-]+$/;
@@ -18,6 +19,101 @@ const HEALTH = new Set([
   "signed_out",
   "unavailable",
 ]);
+
+/** FirstMate's explicit configuration directory wins over the home default. */
+function configDir(): string {
+  return (
+    process.env.FIRSTMATE_CONFIG_DIR ||
+    process.env.QUOTA_AXI_CONFIG ||
+    join(process.env.FM_HOME || join(homedir(), "firstmate"), "config")
+  );
+}
+
+function readConfig(path: string): Row | undefined {
+  try {
+    const parsed: unknown = JSON.parse(
+      readFileSync(join(configDir(), path), "utf8"),
+    );
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Row)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Probe each configured profile through Codex's existing profile-only reader.
+ * The UI never opens a credential file or retains credentials: only the
+ * provider adapter sees the selected home, and each failure stays on its card.
+ */
+export async function firstmateCodexProfiles(
+  probe: (home: string) => Promise<ProviderQuota> = fetchCodexHomeQuota,
+): Promise<ProviderQuota[] | undefined> {
+  const profiles = readConfig("account-profiles.json");
+  const bindings = readConfig("codex-account-bindings.json");
+  if (
+    profiles?.schema_version !== 1 ||
+    !Array.isArray(profiles.profiles) ||
+    bindings?.version !== 1 ||
+    !bindings.codex_homes ||
+    typeof bindings.codex_homes !== "object" ||
+    Array.isArray(bindings.codex_homes)
+  )
+    return undefined;
+  const homes = bindings.codex_homes as Row;
+  const seen = new Set<string>();
+  const selected: { id: string; home: string }[] = [];
+  for (const entry of profiles.profiles) {
+    if (!entry || typeof entry !== "object") continue;
+    const profile = entry as Row;
+    const id = profile.profile_name;
+    if (
+      profile.provider !== "openai" ||
+      profile.harness !== "codex" ||
+      profile.enabled !== true ||
+      typeof id !== "string" ||
+      !PROFILE_ID.test(id) ||
+      seen.has(id)
+    )
+      continue;
+    seen.add(id);
+    if (typeof profile.credential_source_ref !== "string") continue;
+    const home = homes[profile.credential_source_ref];
+    if (typeof home === "string" && home.startsWith("/") && home.length > 1)
+      selected.push({ id, home });
+  }
+  if (!selected.length) return undefined;
+  const reports: ProviderQuota[] = [];
+  for (const { id, home } of selected) {
+    let report: ProviderQuota;
+    try {
+      report = await probe(home);
+    } catch {
+      report = {
+        provider: "codex",
+        label: "Codex",
+        windows: [],
+        state: { status: "error", stale: false, error: "quota probe failed" },
+      };
+    }
+    reports.push({
+      ...report,
+      // Only the configured, validated name is suitable as a display identity.
+      accountKey: id,
+      accountKeys: [id],
+      tuiHealth:
+        report.state.status === "auth_required"
+          ? "signed out"
+          : report.state.status === "fresh"
+            ? "ready"
+            : report.state.status === "unavailable"
+              ? "unavailable"
+              : "quota probe failed",
+    } as ProviderQuota);
+  }
+  return reports;
+}
 
 function percentage(value: unknown): number | undefined {
   return typeof value === "number" &&
@@ -56,12 +152,17 @@ function windowFrom(
 
 /** Undefined means no valid configured snapshot; [] means an empty one. */
 export function firstmateCodexAccounts(
-  home = process.env.FM_HOME || join(homedir(), "firstmate"),
+  home?: string,
 ): ProviderQuota[] | undefined {
   let snapshot: unknown;
   try {
     snapshot = JSON.parse(
-      readFileSync(join(home, "config", "account-quota.json"), "utf8"),
+      readFileSync(
+        home
+          ? join(home, "config", "account-quota.json")
+          : join(configDir(), "account-quota.json"),
+        "utf8",
+      ),
     );
   } catch {
     return undefined;

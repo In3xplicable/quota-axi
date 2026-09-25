@@ -52,6 +52,8 @@ process.env.FM_HOME = join(
   tmpdir(),
   `quota-axi-test-no-firstmate-${process.pid}-${randomUUID()}`,
 );
+delete process.env.FIRSTMATE_CONFIG_DIR;
+delete process.env.QUOTA_AXI_CONFIG;
 
 // Devin's credentials file is `$XDG_DATA_HOME/devin/credentials.toml` when that
 // variable is set, otherwise the developer's real ~/.local/share/devin. Point

@@ -1264,8 +1264,17 @@ function selectedProfileAuthFile(): string | undefined {
   return selector?.trim() ? join(selector, "auth.json") : undefined;
 }
 
-async function fetchProfileOnlyQuota(): Promise<ProviderQuota> {
-  const selected = selectedProfileAuthFile();
+/** Read one explicitly bound Codex home without changing process-wide CODEX_HOME. */
+export async function fetchCodexHomeQuota(
+  home: string,
+): Promise<ProviderQuota> {
+  return fetchProfileOnlyQuota(join(home, "auth.json"));
+}
+
+async function fetchProfileOnlyQuota(
+  authFile = selectedProfileAuthFile(),
+): Promise<ProviderQuota> {
+  const selected = authFile;
   if (!selected) {
     return profileOnlyFailure("Codex profile selector missing", "unavailable", [
       {

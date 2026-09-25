@@ -35,7 +35,10 @@ import {
   renderQuotaToon,
 } from "./render.js";
 import { formatInterval, runLiveTui, type LiveTuiIo } from "./tui-live.js";
-import { firstmateCodexAccounts } from "./firstmate-codex-snapshot.js";
+import {
+  firstmateCodexAccounts,
+  firstmateCodexProfiles,
+} from "./firstmate-codex-snapshot.js";
 import {
   detectTuiColorDepth,
   renderQuotaTui,
@@ -172,11 +175,12 @@ async function quotaTuiReport(
     live: boolean,
     age: number,
   ): Promise<QuotaAxiResponse> => {
-    const accounts = flags.providers.includes("codex")
-      ? firstmateCodexAccounts()
-      : undefined;
-    const useSnapshot = accounts !== undefined && accounts.length > 0;
-    const providers = useSnapshot
+    const accounts =
+      flags.providers.includes("codex") && !flags.profileOnly
+        ? ((await firstmateCodexProfiles()) ?? firstmateCodexAccounts())
+        : undefined;
+    const useProfiles = accounts !== undefined && accounts.length > 0;
+    const providers = useProfiles
       ? flags.providers.filter((provider) => provider !== "codex")
       : flags.providers;
     const response =
@@ -187,14 +191,19 @@ async function quotaTuiReport(
             schemaVersion: 6 as const,
             providers: [],
           };
-    if (!useSnapshot) return response;
+    if (!useProfiles) return response;
     const combined: QuotaAxiResponse = {
       ...response,
       schemaVersion: 6,
-      providers: [...response.providers, ...accounts],
+      providers: [
+        ...response.providers,
+        ...accounts.map((account) =>
+          withQuotaSemantics(account, response.generatedAt),
+        ),
+      ],
     };
-    // The snapshot is an alternate Codex observation, not a second vendor
-    // probe. Exit status follows the displayed accounts as well.
+    // Bound profiles use only their own Codex credential and never duplicate
+    // the ambient probe. Exit status follows the displayed accounts as well.
     if (combined.providers.some((provider) => !isFailed(provider))) {
       process.exitCode = undefined;
     } else {
