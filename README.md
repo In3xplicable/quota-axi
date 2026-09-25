@@ -425,6 +425,8 @@ It keeps each account's quota windows, resets, plan, effective availability, run
 Each account gets its own TUI card, naming its key on an `account <key>` line under the card title, including accounts whose quota cannot be read.
 The `default` key an expanded report fills in for single-account providers is a schema artefact, so the TUI leaves it out of both the card and the `--full` footer; TOON and JSON still publish it.
 
+When FirstMate publishes its metadata-only version 2 `config/account-quota.json` with Codex profile rows, `--tui` reads it from `$FM_HOME` (or `~/firstmate` when unset) and draws one Codex card per `profile_id` instead of probing one ambient Codex login. Session and weekly percentages, reset countdowns, and the profile's reported health remain separate; model-specific rows from the same profile do not create duplicate cards. The live TUI re-reads the file on each scheduled or manual refresh, so adding or removing profiles takes effect without restarting it. The FirstMate collector owns quota probes and updates to that file; quota-axi does not read its credential bindings or run probes for these cards. If the file is absent or has no Codex profiles, normal Codex discovery applies. This presentation source never changes TOON, JSON, or the quota cache.
+
 ```sh
 quota-axi --provider codex --json
 quota-axi --provider codex --tui --no-credential-refresh

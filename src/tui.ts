@@ -354,6 +354,9 @@ function buildLiveCard(
 ): Card {
   const stale = provider.state.stale;
   const rightTitle = [
+    provider.provider === "codex"
+      ? (provider as ProviderQuota & { tuiHealth?: string }).tuiHealth
+      : undefined,
     provider.plan,
     provider.source,
     stale ? "stale" : undefined,

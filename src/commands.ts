@@ -35,6 +35,7 @@ import {
   renderQuotaToon,
 } from "./render.js";
 import { formatInterval, runLiveTui, type LiveTuiIo } from "./tui-live.js";
+import { firstmateCodexAccounts } from "./firstmate-codex-snapshot.js";
 import {
   detectTuiColorDepth,
   renderQuotaTui,
@@ -167,10 +168,43 @@ async function quotaTuiReport(
     });
   };
 
+  const loadFrame = async (
+    live: boolean,
+    age: number,
+  ): Promise<QuotaAxiResponse> => {
+    const accounts = flags.providers.includes("codex")
+      ? firstmateCodexAccounts()
+      : undefined;
+    const useSnapshot = accounts !== undefined && accounts.length > 0;
+    const providers = useSnapshot
+      ? flags.providers.filter((provider) => provider !== "codex")
+      : flags.providers;
+    const response =
+      providers.length > 0
+        ? await loadQuota(providers, options, live, age)
+        : {
+            generatedAt: new Date().toISOString(),
+            schemaVersion: 6 as const,
+            providers: [],
+          };
+    if (!useSnapshot) return response;
+    const combined: QuotaAxiResponse = {
+      ...response,
+      schemaVersion: 6,
+      providers: [...response.providers, ...accounts],
+    };
+    // The snapshot is an alternate Codex observation, not a second vendor
+    // probe. Exit status follows the displayed accounts as well.
+    if (combined.providers.some((provider) => !isFailed(provider))) {
+      process.exitCode = undefined;
+    } else {
+      process.exitCode = 1;
+    }
+    return combined;
+  };
+
   if (flags.once || !isInteractiveTerminal()) {
-    return frame(
-      await loadQuota(flags.providers, options, false, maxAgeSeconds),
-    );
+    return frame(await loadFrame(false, maxAgeSeconds));
   }
 
   const refreshSeconds = flags.refreshSeconds ?? DEFAULT_REFRESH_SECONDS;
@@ -189,9 +223,7 @@ async function quotaTuiReport(
   const last = await runLiveTui<QuotaAxiResponse>({
     // `r` is an operator asking for a new reading now, so it never reuses
     load: (trigger) =>
-      loadQuota(
-        flags.providers,
-        options,
+      loadFrame(
         true,
         trigger === "refresh"
           ? 0

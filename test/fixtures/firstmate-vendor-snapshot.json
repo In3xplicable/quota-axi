@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 3,
+  "providers": [
+    {
+      "provider": "claude",
+      "label": "Claude",
+      "source": "oauth",
+      "windows": [
+        {
+          "id": "seven_day",
+          "label": "week",
+          "kind": "weekly",
+          "percentUsed": 30,
+          "percentRemaining": 70,
+          "resetsAt": "2099-09-28T00:00:00Z"
+        }
+      ],
+      "state": {
+        "status": "fresh",
+        "stale": false,
+        "refreshedAt": "2026-09-25T00:00:00Z",
+        "sourcesTried": ["oauth-file"]
+      }
+    }
+  ]
+}

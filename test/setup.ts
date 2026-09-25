@@ -46,6 +46,13 @@ process.env.XDG_CONFIG_HOME = join(
   `quota-axi-test-config-${process.pid}-${randomUUID()}`,
 );
 
+// The optional FirstMate TUI snapshot must never come from a developer's
+// actual home during tests; individual integration tests supply their own.
+process.env.FM_HOME = join(
+  tmpdir(),
+  `quota-axi-test-no-firstmate-${process.pid}-${randomUUID()}`,
+);
+
 // Devin's credentials file is `$XDG_DATA_HOME/devin/credentials.toml` when that
 // variable is set, otherwise the developer's real ~/.local/share/devin. Point
 // the variable at an empty directory and drop the environment token so a suite

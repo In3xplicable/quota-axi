@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "source": "quota-axi",
+  "accounts": [
+    {
+      "provider": "openai",
+      "profile_id": "codex-personal",
+      "model": "all_models",
+      "health_status": "active",
+      "quota_remaining": 70,
+      "session_percent_remaining": 79,
+      "weekly_percent_remaining": 70,
+      "session_resets_at": "2099-09-26T12:00:00Z",
+      "weekly_resets_at": "2099-09-28T00:00:00Z"
+    },
+    {
+      "provider": "openai",
+      "profile_id": "codex-work",
+      "model": "all_models",
+      "health_status": "ready",
+      "quota_remaining": 35,
+      "session_percent_remaining": 35,
+      "weekly_percent_remaining": 48,
+      "session_resets_at": "2099-09-26T12:00:00Z",
+      "weekly_resets_at": "2099-09-28T00:00:00Z"
+    },
+    {
+      "provider": "openai",
+      "profile_id": "codex-alt",
+      "model": "all_models",
+      "health_status": "cooldown",
+      "quota_remaining": 0,
+      "session_percent_remaining": 0,
+      "weekly_percent_remaining": 0
+    },
+    {
+      "provider": "openai",
+      "profile_id": "codex-logged-out",
+      "model": "all_models",
+      "health_status": "signed_out",
+      "quota_remaining": null
+    },
+    {
+      "provider": "openai",
+      "profile_id": "codex-probe-error",
+      "model": "all_models",
+      "health_status": "unavailable",
+      "quota_remaining": null
+    }
+  ]
+}
